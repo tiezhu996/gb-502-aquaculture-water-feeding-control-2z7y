@@ -77,6 +77,11 @@ export interface ControlExecution extends BaseModel {
   weather: string
   oxygenSnapshot: number
   feedback: string
+  abortReason?: string
+  abortedAt?: string
+  rescheduleOfId?: number
+  rescheduleOf?: ControlExecution
+  rescheduledTo?: ControlExecution
 }
 
 export interface AuditLog extends BaseModel {
@@ -163,6 +168,17 @@ export interface FeedingPlanInput {
 export interface ExecutionInput {
   pondId: number
   feedingPlanId: number
+  scheduledAt: string
+  plannedAmountKg: number
+  weather: string
+}
+
+export interface AbortExecutionInput {
+  actualAmountKg: number
+  abortReason: string
+}
+
+export interface RescheduleExecutionInput {
   scheduledAt: string
   plannedAmountKg: number
   weather: string

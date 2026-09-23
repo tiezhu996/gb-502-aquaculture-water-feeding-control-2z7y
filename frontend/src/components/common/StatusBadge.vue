@@ -8,7 +8,7 @@ const kind = computed(() => ({
   active: 'success', approved: 'success', completed: 'success',
   quarantine: 'warning', pending: 'warning', running: 'warning',
   closed: 'info', draft: 'info', scheduled: 'info',
-  executed: 'success', cancelled: 'danger',
+  executed: 'success', cancelled: 'danger', aborted: 'warning',
 }[props.status] || 'info'))
 </script>
 

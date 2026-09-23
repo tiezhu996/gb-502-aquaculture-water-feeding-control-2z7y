@@ -87,6 +87,8 @@ func New(cfg config.Config, redisClient *redis.Client, auth *service.AuthService
 	executionWrite.POST("", h.Executions.Create)
 	executionWrite.PUT("/:id", h.Executions.Update)
 	executionWrite.PATCH("/:id/complete", h.Executions.Complete)
+	executionWrite.PATCH("/:id/abort", h.Executions.Abort)
+	executionWrite.POST("/:id/reschedule", h.Executions.Reschedule)
 	executionWrite.DELETE("/:id", h.Executions.Delete)
 
 	audit := protected.Group("/audit")

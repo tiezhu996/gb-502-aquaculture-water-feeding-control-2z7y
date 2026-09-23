@@ -21,4 +21,11 @@ type ControlExecution struct {
 	Weather         string                    `gorm:"size:120" json:"weather"`
 	OxygenSnapshot  float64                   `json:"oxygenSnapshot"`
 	Feedback        string                    `gorm:"type:text" json:"feedback"`
+	AbortReason     string                    `gorm:"type:text" json:"abortReason"`
+	AbortedAt       *time.Time                `json:"abortedAt"`
+	// RescheduleOfID 指向触发本次补排的已中止记录；原记录删除补排时置空。
+	RescheduleOfID *uint             `gorm:"index" json:"rescheduleOfId,omitempty"`
+	RescheduleOf   *ControlExecution `gorm:"foreignKey:RescheduleOfID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"rescheduleOf,omitempty"`
+	// RescheduledTo 为反向补排关系，不单独落库列，按 RescheduleOfID 手工装载。
+	RescheduledTo *ControlExecution `gorm:"-" json:"rescheduledTo,omitempty"`
 }

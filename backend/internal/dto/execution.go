@@ -25,3 +25,14 @@ type CompleteExecutionInput struct {
 	OxygenSnapshot float64 `json:"oxygenSnapshot" binding:"gte=0,lte=30"`
 	Feedback       string  `json:"feedback" binding:"required,min=2,max=1000"`
 }
+
+type AbortExecutionInput struct {
+	ActualAmountKg float64 `json:"actualAmountKg" binding:"gte=0"`
+	AbortReason    string  `json:"abortReason" binding:"required,min=2,max=1000"`
+}
+
+type RescheduleExecutionInput struct {
+	ScheduledAt     time.Time `json:"scheduledAt" binding:"required"`
+	PlannedAmountKg float64   `json:"plannedAmountKg" binding:"required,gt=0"`
+	Weather         string    `json:"weather" binding:"max=120"`
+}

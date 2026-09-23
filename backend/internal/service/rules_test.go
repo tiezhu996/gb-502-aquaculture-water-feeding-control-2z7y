@@ -135,3 +135,24 @@ func TestExecutionStatusCannotMoveBackToScheduled(t *testing.T) {
 		t.Fatal("completed execution must be terminal")
 	}
 }
+
+func TestExecutionAbortTransitions(t *testing.T) {
+	if !constants.ExecutionScheduled.CanTransitionTo(constants.ExecutionAborted) {
+		t.Fatal("scheduled execution should be abortable")
+	}
+	if !constants.ExecutionRunning.CanTransitionTo(constants.ExecutionAborted) {
+		t.Fatal("running execution should be abortable")
+	}
+	if constants.ExecutionAborted.CanTransitionTo(constants.ExecutionRunning) {
+		t.Fatal("aborted execution must be terminal")
+	}
+	if constants.ExecutionAborted.CanTransitionTo(constants.ExecutionCompleted) {
+		t.Fatal("aborted execution must not be completed directly")
+	}
+	if constants.ExecutionCancelled.CanTransitionTo(constants.ExecutionAborted) {
+		t.Fatal("cancelled execution must not be aborted")
+	}
+	if !constants.ExecutionAborted.Valid() {
+		t.Fatal("aborted execution status must be registered")
+	}
+}
