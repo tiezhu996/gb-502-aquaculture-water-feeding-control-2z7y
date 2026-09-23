@@ -6,7 +6,7 @@ const props = defineProps<{ status: string }>()
 const labels: Record<string, string> = { ...pondStatusLabels, ...planStatusLabels, ...executionStatusLabels }
 const kind = computed(() => ({
   active: 'success', approved: 'success', completed: 'success',
-  quarantine: 'warning', pending: 'warning', running: 'warning',
+  quarantine: 'warning', pending: 'warning', running: 'warning', aborted: 'warning',
   closed: 'info', draft: 'info', scheduled: 'info',
   executed: 'success', cancelled: 'danger',
 }[props.status] || 'info'))

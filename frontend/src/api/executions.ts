@@ -1,5 +1,5 @@
 import { client, type ApiEnvelope } from './client'
-import type { ControlExecution, ExecutionInput, PageQuery, PageResult } from '@/types/models'
+import type { AbortExecutionInput, ControlExecution, ExecutionInput, PageQuery, PageResult, RescheduleExecutionInput } from '@/types/models'
 import type { ExecutionStatus } from '@/types/enums'
 
 export const executionApi = {
@@ -17,6 +17,14 @@ export const executionApi = {
   },
   async complete(id: number, input: { actualAmountKg: number; oxygenSnapshot: number; feedback: string }) {
     const response = await client.patch<ApiEnvelope<ControlExecution>>(`/executions/${id}/complete`, input)
+    return response.data.data
+  },
+  async abort(id: number, input: AbortExecutionInput) {
+    const response = await client.patch<ApiEnvelope<ControlExecution>>(`/executions/${id}/abort`, input)
+    return response.data.data
+  },
+  async reschedule(id: number, input: RescheduleExecutionInput) {
+    const response = await client.post<ApiEnvelope<ControlExecution>>(`/executions/${id}/reschedule`, input)
     return response.data.data
   },
   async remove(id: number) {

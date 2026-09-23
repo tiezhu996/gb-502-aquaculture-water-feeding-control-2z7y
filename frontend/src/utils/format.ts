@@ -5,7 +5,7 @@ export function formatDateTime(value?: string): string {
   }).format(new Date(value))
 }
 
-export function toLocalInput(value = new Date()): string {
+export function toLocalInput(value: string | Date = new Date()): string {
   const date = new Date(value)
   date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
   return date.toISOString().slice(0, 16)

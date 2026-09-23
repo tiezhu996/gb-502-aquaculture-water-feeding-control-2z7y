@@ -9,15 +9,15 @@ const (
 )
 
 func (s ExecutionStatus) Valid() bool {
-	return s == ExecutionScheduled || s == ExecutionRunning || s == ExecutionCompleted || s == ExecutionCancelled
+	return s == ExecutionScheduled || s == ExecutionRunning || s == ExecutionCompleted || s == ExecutionCancelled || s == ExecutionAborted
 }
 
 func (s ExecutionStatus) CanTransitionTo(next ExecutionStatus) bool {
 	switch s {
 	case ExecutionScheduled:
-		return next == ExecutionScheduled || next == ExecutionRunning || next == ExecutionCompleted || next == ExecutionCancelled
+		return next == ExecutionScheduled || next == ExecutionRunning || next == ExecutionCompleted || next == ExecutionCancelled || next == ExecutionAborted
 	case ExecutionRunning:
-		return next == ExecutionRunning || next == ExecutionCompleted || next == ExecutionCancelled
+		return next == ExecutionRunning || next == ExecutionCompleted || next == ExecutionCancelled || next == ExecutionAborted
 	default:
 		return false
 	}
@@ -68,4 +68,5 @@ const (
 	ExecutionRunning   ExecutionStatus = "running"
 	ExecutionCompleted ExecutionStatus = "completed"
 	ExecutionCancelled ExecutionStatus = "cancelled"
+	ExecutionAborted   ExecutionStatus = "aborted"
 )

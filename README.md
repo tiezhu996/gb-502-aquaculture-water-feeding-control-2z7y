@@ -9,6 +9,7 @@
 - 投喂计划：草稿修订自动升版，支持提交、批准和撤销；批准时会校验水质与溶解氧阈值。
 - 投喂建议：结合已批准计划、24 小时内水质、天气和生长阶段，输出正常投喂、减量或暂停。
 - 执行反馈：仅允许已批准计划进入执行，记录实际量、现场溶解氧与反馈。
+- 异常中止与补排：待执行/执行中记录可登记中止原因与已投喂量后中止；中止按实际量计入当日累计，不再占用原计划量；仅可从中止记录发起一次补排，补排量受未投喂差额与当日余额双重约束，生成与原记录双向关联的新安排。
 - 安全与审计：JWT、RBAC、请求 ID、全局异常恢复、Redis 限流和实体变更前后快照。
 
 ## 快速启动
@@ -80,7 +81,8 @@ docker compose down
 - Go：`backend/internal/constants/enums.go`
   - `PondStatus`: `active` / `quarantine` / `closed`
   - `PlanStatus`: `draft` / `pending` / `approved` / `executed`
-  - `RiskLevel`、`ExecutionStatus`、`Role`
+  - `RiskLevel`、`Role`
+  - `ExecutionStatus`: `scheduled` / `running` / `completed` / `cancelled` / `aborted`
 - TypeScript：`frontend/src/types/enums.ts`
   - 与 Go 取值一致，同时提供界面文案映射。
 
@@ -110,6 +112,8 @@ docker compose down
 | `GET` | `/api/plans/recommendation?pondId=1&weather=晴朗` | 生成投喂建议 |
 | `GET/POST` | `/api/executions` | 执行记录列表/安排 |
 | `PATCH` | `/api/executions/:id/complete` | 提交实际数量与反馈 |
+| `PATCH` | `/api/executions/:id/abort` | 登记中止原因与已投喂量后中止 |
+| `POST` | `/api/executions/:id/reschedule` | 从中止记录发起补排，生成关联新安排 |
 | `GET` | `/api/audit` | 管理员/主管查看审计记录 |
 
 错误统一为 `{"error":{"code":"...","message":"...","requestId":"..."}}`，响应头同时包含 `X-Request-ID`。
@@ -147,4 +151,8 @@ docker compose config --quiet
 - 计划批准需要运行中养殖池和最新水质，溶解氧不得低于计划阈值。
 - 执行安排需要 24 小时内水质，严重异常或溶解氧不足会阻断流程。
 - 实际量与计划量偏差超过 25% 时，必须提供至少 10 个字的说明。
+- 只有待执行或执行中记录可以中止；中止必须填写原因，已投喂量不得超过本次计划量（允许为 0）。
+- 中止记录按实际投喂量计入当日累计，原计划量随即释放；已取消记录不占用当日累计。
+- 补排只能从中止记录发起且仅限一次，补排量不得超过"计划量 − 实际量"的差额，也不得超过当日剩余余额；余额为零时拒绝补排，补排时间须与原安排同一日。
+- 中止最后一条开放记录会按既有规则将计划闭合为 `executed`；补排时自动重新打开为 `approved`，补排记录全部完成后再次闭合。
 - 关联了读数、计划或执行记录的养殖池不允许删除。

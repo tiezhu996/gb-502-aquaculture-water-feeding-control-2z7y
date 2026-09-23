@@ -95,6 +95,42 @@ func (h *ExecutionHandler) Complete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": result})
 }
 
+func (h *ExecutionHandler) Abort(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var input dto.AbortExecutionInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		respondError(c, service.NewError(service.CodeValidation, "中止参数不完整或格式无效：需填写中止原因和已投喂量"))
+		return
+	}
+	result, err := h.service.Abort(id, input, actorFromContext(c))
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": result})
+}
+
+func (h *ExecutionHandler) Reschedule(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var input dto.RescheduleExecutionInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		respondError(c, service.NewError(service.CodeValidation, "补排参数不完整或格式无效"))
+		return
+	}
+	result, err := h.service.Reschedule(id, input, actorFromContext(c))
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"data": result})
+}
+
 func (h *ExecutionHandler) Delete(c *gin.Context) {
 	id, ok := parseID(c)
 	if !ok {

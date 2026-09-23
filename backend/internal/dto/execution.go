@@ -25,3 +25,17 @@ type CompleteExecutionInput struct {
 	OxygenSnapshot float64 `json:"oxygenSnapshot" binding:"gte=0,lte=30"`
 	Feedback       string  `json:"feedback" binding:"required,min=2,max=1000"`
 }
+
+type AbortExecutionInput struct {
+	// ActualAmountKg 为中止前实际投喂量，允许为 0（完全未投喂）。
+	ActualAmountKg float64 `json:"actualAmountKg" binding:"gte=0"`
+	AbortReason    string  `json:"abortReason" binding:"required,min=2,max=1000"`
+}
+
+type RescheduleExecutionInput struct {
+	// ScheduledAt 补排时间，必须与被中止记录安排在同一 UTC 日。
+	ScheduledAt time.Time `json:"scheduledAt" binding:"required"`
+	// PlannedAmountKg 补排量，只能使用当日剩余的日量差额。
+	PlannedAmountKg float64 `json:"plannedAmountKg" binding:"required,gt=0"`
+	Weather         string  `json:"weather" binding:"max=120"`
+}

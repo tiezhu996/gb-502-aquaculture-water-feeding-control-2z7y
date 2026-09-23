@@ -5,6 +5,7 @@ import (
 	"aquaculture-water-feeding-control/backend/internal/dto"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAssessWaterRisk(t *testing.T) {
@@ -133,5 +134,38 @@ func TestExecutionStatusCannotMoveBackToScheduled(t *testing.T) {
 	}
 	if constants.ExecutionCompleted.CanTransitionTo(constants.ExecutionRunning) {
 		t.Fatal("completed execution must be terminal")
+	}
+}
+
+func TestAbortTransitionsAndTerminality(t *testing.T) {
+	if !constants.ExecutionScheduled.CanTransitionTo(constants.ExecutionAborted) {
+		t.Fatal("scheduled execution should be abortable")
+	}
+	if !constants.ExecutionRunning.CanTransitionTo(constants.ExecutionAborted) {
+		t.Fatal("running execution should be abortable")
+	}
+	if constants.ExecutionAborted.CanTransitionTo(constants.ExecutionRunning) ||
+		constants.ExecutionAborted.CanTransitionTo(constants.ExecutionCompleted) ||
+		constants.ExecutionAborted.CanTransitionTo(constants.ExecutionScheduled) {
+		t.Fatal("aborted execution must be terminal")
+	}
+	if !constants.ExecutionAborted.Valid() {
+		t.Fatal("aborted must be a valid status")
+	}
+}
+
+func TestSameUTCDay(t *testing.T) {
+	base := time.Date(2026, 9, 23, 23, 0, 0, 0, time.UTC)
+	sameDay := base.Add(30 * time.Minute)
+	nextDay := base.Add(2 * time.Hour)
+	otherDay := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
+	if !sameUTCDay(base, sameDay) {
+		t.Fatal("times within the same UTC day should match")
+	}
+	if sameUTCDay(base, nextDay) {
+		t.Fatal("times crossing UTC midnight should not match")
+	}
+	if sameUTCDay(base, otherDay) {
+		t.Fatal("different calendar days should not match")
 	}
 }

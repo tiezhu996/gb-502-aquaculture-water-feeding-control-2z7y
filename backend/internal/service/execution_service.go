@@ -6,6 +6,7 @@ import (
 	"aquaculture-water-feeding-control/backend/internal/model"
 	"aquaculture-water-feeding-control/backend/internal/repository"
 	"math"
+	"strconv"
 	"time"
 
 	"gorm.io/gorm"
@@ -108,8 +109,8 @@ func (s *ExecutionService) Update(id uint, input dto.UpdateExecutionInput, actor
 	if err != nil {
 		return model.ControlExecution{}, err
 	}
-	if execution.Status == constants.ExecutionCompleted || execution.Status == constants.ExecutionCancelled {
-		return model.ControlExecution{}, NewError(CodeConflict, "已完成或已取消记录不能编辑")
+	if execution.Status == constants.ExecutionCompleted || execution.Status == constants.ExecutionCancelled || execution.Status == constants.ExecutionAborted {
+		return model.ControlExecution{}, NewError(CodeConflict, "已完成、已取消或已中止记录不能编辑")
 	}
 	if input.Status != constants.ExecutionScheduled && input.Status != constants.ExecutionRunning && input.Status != constants.ExecutionCancelled {
 		return model.ControlExecution{}, NewError(CodeValidation, "执行状态无效")
@@ -178,28 +179,173 @@ func (s *ExecutionService) Complete(id uint, input dto.CompleteExecutionInput, a
 	if err := s.repo.Save(&execution); err != nil {
 		return model.ControlExecution{}, WrapError(CodeInternal, "完成执行记录失败", err)
 	}
-	plan, err := s.plans.Get(execution.FeedingPlanID)
-	if err != nil {
-		return model.ControlExecution{}, WrapError(CodeInternal, "查询关联计划失败", err)
-	}
-	openCount, err := s.repo.CountOpenForPlanExcluding(plan.ID, execution.ID)
-	if err != nil {
-		return model.ControlExecution{}, WrapError(CodeInternal, "检查计划待执行记录失败", err)
-	}
-	if plan.Status == constants.PlanStatusApproved && openCount == 0 {
-		planBefore := plan
-		plan.Status = constants.PlanStatusExecuted
-		if err := s.plans.Save(&plan); err != nil {
-			return model.ControlExecution{}, WrapError(CodeInternal, "更新计划执行状态失败", err)
-		}
-		if err := s.audit.Record(actor, "execute", "feeding_plan", plan.ID, planBefore, plan, "首次投喂执行已完成"); err != nil {
-			return model.ControlExecution{}, err
-		}
+	if err := s.closePlanIfNoOpenExecutions(execution, actor, "首次投喂执行已完成"); err != nil {
+		return model.ControlExecution{}, err
 	}
 	if err := s.audit.Record(actor, "complete", "control_execution", execution.ID, before, execution, input.Feedback); err != nil {
 		return model.ControlExecution{}, err
 	}
 	return execution, nil
+}
+
+// Abort 中止待执行或执行中的投喂记录。记录实际投喂量（允许为 0）后进入终态 aborted，
+// 当日累计只按实际量核算，原计划量不再占用。
+func (s *ExecutionService) Abort(id uint, input dto.AbortExecutionInput, actor Actor) (model.ControlExecution, error) {
+	if !s.transactional {
+		var result model.ControlExecution
+		err := s.withinTransaction(func(scoped *ExecutionService) error {
+			var inner error
+			result, inner = scoped.Abort(id, input, actor)
+			return inner
+		})
+		return result, err
+	}
+	execution, err := s.Get(id)
+	if err != nil {
+		return model.ControlExecution{}, err
+	}
+	if execution.Status != constants.ExecutionScheduled && execution.Status != constants.ExecutionRunning {
+		return model.ControlExecution{}, NewError(CodeConflict, "只有待执行或执行中的记录可以中止")
+	}
+	if input.ActualAmountKg > execution.PlannedAmountKg+0.0001 {
+		return model.ControlExecution{}, NewError(CodeValidation, "已投喂量不能超过本次计划量")
+	}
+	before := execution
+	now := time.Now().UTC()
+	if execution.Status == constants.ExecutionRunning && execution.StartedAt == nil {
+		execution.StartedAt = &now
+	}
+	execution.AbortedAt = &now
+	execution.ActualAmountKg = input.ActualAmountKg
+	execution.AbortReason = input.AbortReason
+	execution.Status = constants.ExecutionAborted
+	if err := s.repo.Save(&execution); err != nil {
+		return model.ControlExecution{}, WrapError(CodeInternal, "中止执行记录失败", err)
+	}
+	if err := s.closePlanIfNoOpenExecutions(execution, actor, "投喂记录异常中止"); err != nil {
+		return model.ControlExecution{}, err
+	}
+	if err := s.audit.Record(actor, "abort", "control_execution", execution.ID, before, execution, input.AbortReason); err != nil {
+		return model.ControlExecution{}, err
+	}
+	return execution, nil
+}
+
+// Reschedule 只能从中止记录发起补排。补排量只能使用该中止记录计划日量未被投喂的差额，
+// 余额为零时不能补排，余额不足则拒绝。原记录保留中止状态与补排关系，生成关联的新安排。
+func (s *ExecutionService) Reschedule(id uint, input dto.RescheduleExecutionInput, actor Actor) (model.ControlExecution, error) {
+	if !s.transactional {
+		var result model.ControlExecution
+		err := s.withinTransaction(func(scoped *ExecutionService) error {
+			var inner error
+			result, inner = scoped.Reschedule(id, input, actor)
+			return inner
+		})
+		return result, err
+	}
+	source, err := s.Get(id)
+	if err != nil {
+		return model.ControlExecution{}, err
+	}
+	if source.Status != constants.ExecutionAborted {
+		return model.ControlExecution{}, NewError(CodeConflict, "只能对已中止记录发起补排")
+	}
+	if source.RescheduledToID != nil {
+		return model.ControlExecution{}, NewError(CodeConflict, "该中止记录已发起补排，不能重复补排")
+	}
+	if !sameUTCDay(input.ScheduledAt, source.ScheduledAt) {
+		return model.ControlExecution{}, NewError(CodeValidation, "补排必须安排在原计划的同一日")
+	}
+	if input.PlannedAmountKg > source.PlannedAmountKg-source.ActualAmountKg+0.0001 {
+		return model.ControlExecution{}, NewError(CodeValidation, "补排量不能超过中止记录未投喂的差额")
+	}
+	plan, err := s.plans.GetForUpdate(source.FeedingPlanID)
+	if err != nil {
+		return model.ControlExecution{}, WrapError(CodeInternal, "查询投喂计划失败", err)
+	}
+	dayStart := time.Date(source.ScheduledAt.UTC().Year(), source.ScheduledAt.UTC().Month(), source.ScheduledAt.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	usedForDay, err := s.repo.PlannedAmountForDay(source.PondID, dayStart, dayStart.Add(24*time.Hour), 0)
+	if err != nil {
+		return model.ControlExecution{}, WrapError(CodeInternal, "核算当日投喂余额失败", err)
+	}
+	remaining := plan.DailyAmountKg - usedForDay
+	if remaining <= 0.0001 {
+		return model.ControlExecution{}, NewError(CodeConflict, "当日投喂余额为零，不能补排")
+	}
+	if input.PlannedAmountKg > remaining+0.0001 {
+		return model.ControlExecution{}, NewError(CodeConflict, "当日投喂余额不足，补排申请量超过剩余日量")
+	}
+	// 中止后计划可能已按规则闭合为 executed；补排会产生新的待执行记录，需要重新打开。
+	if plan.Status == constants.PlanStatusExecuted {
+		planBefore := plan
+		plan.Status = constants.PlanStatusApproved
+		if err := s.plans.Save(&plan); err != nil {
+			return model.ControlExecution{}, WrapError(CodeInternal, "重新打开投喂计划失败", err)
+		}
+		if err := s.audit.Record(actor, "reopen", "feeding_plan", plan.ID, planBefore, plan, "异常中止补排，重新打开已闭合计划"); err != nil {
+			return model.ControlExecution{}, err
+		}
+	}
+	if _, _, _, err := s.validateExecution(source.PondID, source.FeedingPlanID, input.PlannedAmountKg, input.ScheduledAt, 0); err != nil {
+		return model.ControlExecution{}, err
+	}
+	execution := model.ControlExecution{
+		PondID: source.PondID, FeedingPlanID: source.FeedingPlanID, ScheduledAt: input.ScheduledAt.UTC(),
+		PlannedAmountKg: input.PlannedAmountKg, Status: constants.ExecutionScheduled,
+		Operator: actor.DisplayName, Weather: input.Weather, OxygenSnapshot: source.OxygenSnapshot,
+		RescheduledFromID: &source.ID,
+	}
+	if execution.Operator == "" {
+		execution.Operator = actor.Username
+	}
+	if execution.Weather == "" {
+		execution.Weather = source.Weather
+	}
+	if err := s.repo.Create(&execution); err != nil {
+		return model.ControlExecution{}, WrapError(CodeInternal, "创建补排安排失败", err)
+	}
+	sourceBefore := source
+	source.RescheduledToID = &execution.ID
+	if err := s.repo.Save(&source); err != nil {
+		return model.ControlExecution{}, WrapError(CodeInternal, "保存补排关联失败", err)
+	}
+	if err := s.audit.Record(actor, "reschedule", "control_execution", execution.ID, nil, execution, "中止记录补排安排"); err != nil {
+		return model.ControlExecution{}, err
+	}
+	if err := s.audit.Record(actor, "reschedule_link", "control_execution", source.ID, sourceBefore, source, "关联补排安排 #"+strconv.FormatUint(uint64(execution.ID), 10)); err != nil {
+		return model.ControlExecution{}, err
+	}
+	execution.RescheduledFrom = &source
+	return execution, nil
+}
+
+// closePlanIfNoOpenExecutions 在完成或中止最后一条待执行/执行中记录后，将已批准计划闭合为 executed。
+func (s *ExecutionService) closePlanIfNoOpenExecutions(execution model.ControlExecution, actor Actor, reason string) error {
+	plan, err := s.plans.Get(execution.FeedingPlanID)
+	if err != nil {
+		return WrapError(CodeInternal, "查询关联计划失败", err)
+	}
+	openCount, err := s.repo.CountOpenForPlanExcluding(plan.ID, execution.ID)
+	if err != nil {
+		return WrapError(CodeInternal, "检查计划待执行记录失败", err)
+	}
+	if plan.Status == constants.PlanStatusApproved && openCount == 0 {
+		planBefore := plan
+		plan.Status = constants.PlanStatusExecuted
+		if err := s.plans.Save(&plan); err != nil {
+			return WrapError(CodeInternal, "更新计划执行状态失败", err)
+		}
+		if err := s.audit.Record(actor, "execute", "feeding_plan", plan.ID, planBefore, plan, reason); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sameUTCDay(a, b time.Time) bool {
+	a = a.UTC()
+	b = b.UTC()
+	return a.Year() == b.Year() && a.YearDay() == b.YearDay()
 }
 
 func (s *ExecutionService) Delete(id uint, actor Actor) error {

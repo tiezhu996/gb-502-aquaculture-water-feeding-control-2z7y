@@ -70,6 +70,7 @@ export interface ControlExecution extends BaseModel {
   scheduledAt: string
   startedAt?: string
   completedAt?: string
+  abortedAt?: string
   plannedAmountKg: number
   actualAmountKg: number
   status: ExecutionStatus
@@ -77,6 +78,22 @@ export interface ControlExecution extends BaseModel {
   weather: string
   oxygenSnapshot: number
   feedback: string
+  abortReason: string
+  rescheduledFromId?: number
+  rescheduledToId?: number
+  rescheduledFrom?: ControlExecution
+  rescheduledTo?: ControlExecution
+}
+
+export interface AbortExecutionInput {
+  actualAmountKg: number
+  abortReason: string
+}
+
+export interface RescheduleExecutionInput {
+  scheduledAt: string
+  plannedAmountKg: number
+  weather: string
 }
 
 export interface AuditLog extends BaseModel {
